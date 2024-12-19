@@ -33,6 +33,11 @@
   margin: layout.$spacing-05;
 }
 
+.contentSwitcherGrid {
+  padding: 0px;
+  margin-bottom: layout.$spacing-05;
+}
+
 .gridRow {
   padding: 0px;
 
@@ -60,9 +65,14 @@
   margin: layout.$spacing-03 0;
 }
 
+.orderTypeMessage,
 .testTypeLabel {
   @include type.type-style('label-01');
   color: $text-02;
+}
+
+.contextSwitcher {
+  margin-top: layout.$spacing-03;
 }
 
 /* Tablet */

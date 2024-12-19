@@ -51,6 +51,8 @@ export async function postOrdersOnNewEncounter(
     orders,
   };
 
+  console.log('orders', orders);
+
   return openmrsFetch<OpenmrsResource>(`${restBaseUrl}/encounter`, {
     headers: {
       'Content-Type': 'application/json',
@@ -65,12 +67,14 @@ export async function postOrders(encounterUuid: string, abortController: AbortCo
   const patientUuid = getPatientUuidFromStore();
   const { items, postDataPrepFunctions }: OrderBasketStore = orderBasketStore.getState();
   const patientItems = items[patientUuid];
+  console.log('postDataPrepFunctions', postDataPrepFunctions);
 
   const erroredItems: Array<OrderBasketItem> = [];
   for (let grouping in patientItems) {
     const orders = patientItems[grouping];
     for (let i = 0; i < orders.length; i++) {
       const order = orders[i];
+      console.log('order', order);
       const dataPrepFn = postDataPrepFunctions[grouping];
 
       if (typeof dataPrepFn !== 'function') {
@@ -91,6 +95,7 @@ export async function postOrders(encounterUuid: string, abortController: AbortCo
 }
 
 function postOrder(body: OrderPost, abortController?: AbortController) {
+  console.log('body', body);
   return openmrsFetch(`${restBaseUrl}/order`, {
     method: 'POST',
     signal: abortController?.signal,

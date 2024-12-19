@@ -89,12 +89,13 @@ export function prepTestOrderPostData(
       patient: patientUuid,
       careSetting: careSettingUuid,
       orderer: order.orderer,
-      encounter: encounterUuid,
+      encounter: order.encounterUuid ?? encounterUuid,
       concept: order.testType.conceptUuid,
       instructions: order.instructions,
       orderReason: order.orderReason,
       accessionNumber: order.accessionNumber,
       urgency: order.urgency,
+      dateActivated: order.dateActivated ?? new Date().toISOString(),
     };
   } else if (order.action === 'REVISE') {
     return {

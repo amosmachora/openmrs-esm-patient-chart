@@ -55,6 +55,7 @@ const OrderBasket: React.FC<DefaultPatientWorkspaceProps> = ({
     const abortController = new AbortController();
     setCreatingEncounterError('');
     let orderEncounterUuid = encounterUuid;
+    console.log('encounterUUID', encounterUuid);
     setIsSavingOrders(true);
     // If there's no encounter present, create an encounter along with the orders.
     if (!orderEncounterUuid) {

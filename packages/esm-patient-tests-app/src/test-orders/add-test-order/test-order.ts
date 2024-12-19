@@ -1,9 +1,23 @@
-import { type OrderUrgency, type OrderableConcept } from '@openmrs/esm-patient-common-lib';
+import {
+  useSystemVisitSetting,
+  useVisitOrOfflineVisit,
+  type OrderUrgency,
+  type OrderableConcept,
+} from '@openmrs/esm-patient-common-lib';
 import { type TestType } from './useTestTypes';
 import type { TestOrderBasketItem } from '../../types';
-import { translateFrom } from '@openmrs/esm-framework';
+import {
+  type FetchResponse,
+  openmrsFetch,
+  type OpenmrsResource,
+  restBaseUrl,
+  translateFrom,
+} from '@openmrs/esm-framework';
 import { moduleName } from '../../constants';
 import { type TOptions } from 'i18next';
+import { useMemo } from 'react';
+import useSWR from 'swr';
+import dayjs from 'dayjs';
 
 const t = (key: string, fallback?: string, options?: Omit<TOptions, 'ns' | 'defaultValue'>) =>
   translateFrom(moduleName, key, fallback, options);
@@ -35,4 +49,37 @@ export function createEmptyLabOrder(testType: TestType, orderer: string): TestOr
 
 export function ordersEqual(order1: LabOrderRequest, order2: LabOrderRequest) {
   return order1.testType.conceptUuid === order2.testType.conceptUuid && order1.action === order2.action;
+}
+
+export function useOrderEncounter(
+  patientUuid: string,
+  date?: Date,
+): {
+  isLoading: boolean;
+  error: Error;
+  encounterUuid: string;
+  encounterDateTime: string;
+} {
+  console.log('date', date);
+  const startOfDay = dayjs(date).startOf('day').toDate();
+  const endOfDay = dayjs(date).endOf('day').toDate();
+
+  console.log({ startOfDay, endOfDay });
+
+  const encountersResponse = useSWR<FetchResponse<{ results: Array<OpenmrsResource> }>, Error>(
+    patientUuid && date
+      ? `${restBaseUrl}/encounter?patient=${patientUuid}&fromdate=${startOfDay.toISOString()}&todate=${endOfDay.toISOString()}&v=full`
+      : null,
+    openmrsFetch,
+  );
+
+  console.log('encountersResponse', encountersResponse?.data?.data?.results);
+
+  return {
+    isLoading: encountersResponse?.isLoading,
+    encounterUuid: encountersResponse?.data?.data?.results?.[0]?.uuid,
+    // we are assuming that the user wants to select the first encounter. probably very wrong.
+    encounterDateTime: encountersResponse?.data?.data?.results?.[0]?.encounterDatetime,
+    error: encountersResponse?.error,
+  };
 }

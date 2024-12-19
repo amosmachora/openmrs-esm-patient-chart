@@ -5,8 +5,10 @@ import {
   launchPatientWorkspace,
   useOrderBasket,
   useOrderType,
+  usePatientChartStore,
+  useVisitOrOfflineVisit,
 } from '@openmrs/esm-patient-common-lib';
-import { ExtensionSlot, translateFrom, useConfig, useLayoutType, useSession } from '@openmrs/esm-framework';
+import { ExtensionSlot, translateFrom, useConfig, useLayoutType, usePatient, useSession } from '@openmrs/esm-framework';
 import { prepTestOrderPostData, useOrderReasons } from '../api';
 import {
   Button,
@@ -19,9 +21,13 @@ import {
   Layer,
   TextArea,
   TextInput,
+  ContentSwitcher,
+  Switch,
+  DatePicker,
+  DatePickerInput,
 } from '@carbon/react';
 import { useTranslation } from 'react-i18next';
-import { ordersEqual, priorityOptions } from './test-order';
+import { ordersEqual, priorityOptions, useOrderEncounter } from './test-order';
 import { Controller, type FieldErrors, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -29,6 +35,7 @@ import { moduleName } from '@openmrs/esm-patient-chart-app/src/constants';
 import { type ConfigObject } from '../../config-schema';
 import styles from './test-order-form.scss';
 import type { TestOrderBasketItem } from '../../types';
+import dayjs from 'dayjs';
 
 export interface LabOrderFormProps extends DefaultPatientWorkspaceProps {
   initialOrder: TestOrderBasketItem;
@@ -53,11 +60,14 @@ export function LabOrderForm({
   const isEditing = useMemo(() => initialOrder && initialOrder.action === 'REVISE', [initialOrder]);
   const { orders, setOrders } = useOrderBasket<TestOrderBasketItem>(orderTypeUuid, prepTestOrderPostData);
   const [showErrorNotification, setShowErrorNotification] = useState(false);
+  const [isNewOrExistingOrder, setIsNewOrExistingOrder] = useState<'new' | 'existing'>('new');
   const config = useConfig<ConfigObject>();
-  const { orderType, isLoadingOrderType } = useOrderType(orderTypeUuid);
+  const { orderType } = useOrderType(orderTypeUuid);
   const orderReasonRequired = (
     config.labTestsWithOrderReasons?.find((c) => c.labTestUuid === initialOrder?.testType?.conceptUuid) || {}
   ).required;
+  const { patientUuid } = usePatientChartStore();
+  const { activeVisit } = useVisitOrOfflineVisit(patientUuid);
 
   const labOrderFormSchema = useMemo(
     () =>
@@ -88,14 +98,19 @@ export function LabOrderForm({
                 translateFrom(moduleName, 'addLabOrderLabOrderReasonRequired', 'Order reason is required'),
               )
           : z.string().optional(),
+        dateActivated:
+          isNewOrExistingOrder === 'existing'
+            ? z.string({ required_error: 'The order date is required' })
+            : z.undefined(),
       }),
-    [orderReasonRequired],
+    [isNewOrExistingOrder, orderReasonRequired],
   );
 
   const {
     control,
     handleSubmit,
     formState: { errors, defaultValues, isDirty },
+    watch,
   } = useForm<TestOrderBasketItem>({
     mode: 'all',
     resolver: zodResolver(labOrderFormSchema),
@@ -104,6 +119,15 @@ export function LabOrderForm({
       ...initialOrder,
     },
   });
+
+  const watchedDateActivated = watch('dateActivated');
+  const { encounterUuid, error, isLoading, encounterDateTime } = useOrderEncounter(
+    patientUuid,
+    watchedDateActivated ? new Date(watchedDateActivated) : undefined,
+  );
+
+  console.log('encounterUuid', encounterUuid);
+  console.log('watchedDateActivated', watchedDateActivated);
 
   const orderReasonUuids =
     (config.labTestsWithOrderReasons?.find((c) => c.labTestUuid === defaultValues?.testType?.conceptUuid) || {})
@@ -120,6 +144,8 @@ export function LabOrderForm({
       const finalizedOrder: TestOrderBasketItem = {
         ...initialOrder,
         ...data,
+        encounterUuid,
+        dateActivated: encounterDateTime,
       };
       finalizedOrder.orderer = session.currentProvider.uuid;
 
@@ -142,7 +168,15 @@ export function LabOrderForm({
         onWorkspaceClose: () => launchPatientWorkspace('order-basket'),
       });
     },
-    [orders, setOrders, session?.currentProvider?.uuid, closeWorkspaceWithSavedChanges, initialOrder],
+    [
+      initialOrder,
+      encounterUuid,
+      encounterDateTime,
+      session.currentProvider.uuid,
+      orders,
+      setOrders,
+      closeWorkspaceWithSavedChanges,
+    ],
   );
 
   const cancelOrder = useCallback(() => {
@@ -187,7 +221,24 @@ export function LabOrderForm({
               </InputWrapper>
             </Column>
           </Grid>
-          {config.showLabReferenceNumberField ? (
+          <Grid className={styles.contentSwitcherGrid}>
+            <Column lg={16} md={8} sm={4}>
+              <label className={styles.orderTypeMessage}>
+                {t('orderTypeMessage', 'Is this a new or existing order?')}
+              </label>
+              <ContentSwitcher
+                onChange={(e: { index: number; name: 'existing' | 'new'; text: 'Existing' | 'New' }) =>
+                  setIsNewOrExistingOrder(e.name)
+                }
+                className={styles.contextSwitcher}
+              >
+                <Switch name="new" text={t('new', 'New')} />
+                <Switch name="existing" text={t('existing', 'Existing')} />
+              </ContentSwitcher>
+            </Column>
+          </Grid>
+
+          {isNewOrExistingOrder === 'new' && config.showLabReferenceNumberField && (
             <Grid className={styles.gridRow}>
               <Column lg={16} md={8} sm={4}>
                 <InputWrapper>
@@ -213,7 +264,59 @@ export function LabOrderForm({
                 </InputWrapper>
               </Column>
             </Grid>
-          ) : null}
+          )}
+
+          {isNewOrExistingOrder === 'existing' && (
+            <Grid className={styles.gridRow}>
+              <Column lg={16} md={8} sm={4}>
+                <InputWrapper>
+                  <Controller
+                    name="dateActivated"
+                    control={control}
+                    render={({ field: { onChange, onBlur, value } }) => (
+                      <DatePicker
+                        datePickerType="single"
+                        id="labOrderDatePicker"
+                        onBlur={onBlur}
+                        onChange={(dates: [Date, Date]) => {
+                          // Carbon returns an array; extract the first date
+                          const selectedDate = dates[0];
+                          const startOfActiveVisit = dayjs(new Date(activeVisit.startDatetime)).startOf('day').toDate();
+
+                          console.log('selectedDate', {
+                            selectedDate,
+                            startOfActiveVisit,
+                          });
+                          // The below logic is to prevent sending over a midnight date for the
+                          // day the visit was started
+
+                          if (selectedDate.getTime() === startOfActiveVisit.getTime()) {
+                            onChange(activeVisit.startDatetime);
+                            return;
+                          }
+
+                          onChange(selectedDate.toISOString());
+                        }}
+                        size={responsiveSize}
+                        value={value ? dayjs(new Date(value)).startOf('day').toDate().toISOString() : undefined}
+                        minDate={dayjs(new Date(activeVisit.startDatetime)).startOf('day').toDate()}
+                      >
+                        <DatePickerInput
+                          placeholder="mm/dd/yyyy"
+                          id="date-picker-single"
+                          size="md"
+                          invalid={!!errors.dateActivated}
+                          invalidText={errors.dateActivated?.message}
+                          labelText={t('EnterDateOrderWasCreated', 'Enter date order was created')}
+                        />
+                      </DatePicker>
+                    )}
+                  />
+                </InputWrapper>
+              </Column>
+            </Grid>
+          )}
+
           <Grid className={styles.gridRow}>
             <Column lg={8} md={8} sm={4}>
               <InputWrapper>
@@ -307,7 +410,7 @@ export function LabOrderForm({
             <Button className={styles.button} kind="secondary" onClick={cancelOrder} size="xl">
               {t('discard', 'Discard')}
             </Button>
-            <Button className={styles.button} kind="primary" size="xl" type="submit">
+            <Button className={styles.button} kind="primary" size="xl" type="submit" disabled={isLoading || error}>
               {t('saveOrder', 'Save order')}
             </Button>
           </ButtonSet>
